@@ -1,0 +1,40 @@
+# Render Blueprint - TeaVision AI Free Hosting
+# https://render.com/docs/blueprint-spec
+# Deploy: Connect your GitHub repo at https://dashboard.render.com/
+
+services:
+  # Backend API (FastAPI + PyTorch)
+  - type: web
+    name: teavision-api
+    runtime: python
+    plan: free  # Free tier - 750 hours/month
+    buildCommand: pip install -r requirements.txt
+    startCommand: cd backend && python -m uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.10.0"
+      - key: OLLAMA_BASE_URL
+        value: "http://localhost:11434"  # Won't work on free tier
+      - key: FAST_MODE_ENABLED
+        value: "True"
+    healthCheckPath: /health
+    autoDeploy: true
+
+  # Frontend (React + Vite - Static Site)
+  - type: web
+    name: teavision-frontend
+    runtime: static
+    plan: free
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: frontend/dist
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: public, max-age=31536000
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        value: https://teavision-api.onrender.com

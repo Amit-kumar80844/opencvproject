@@ -1,0 +1,106 @@
+# ==================================================
+# Tea Leaf Disease Segmentation - Root .gitignore
+# ==================================================
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Notebook copies (backup folders)
+notebooks copy/
+notebooks copy 2/
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Datasets (large files - not tracked)
+datasets/
+*.csv
+*.tsv
+*.parquet
+
+# Model Checkpoints (large files - use Git LFS for essential ones)
+# These are tracked via Git LFS:
+# backend/checkpoints/*.pth
+
+# Ignore duplicate checkpoints in notebooks
+notebooks/*.pth
+notebooks/**/*.pth
+
+# Ignore non-LFS model formats
+*.pt
+*.onnx
+*.h5
+*.pb
+
+# ChromaDB - auto-regenerated
+backend/chroma_db/
+
+# Logs
+backend/logs/
+*.log
+
+# Frontend build
+frontend/node_modules/
+frontend/dist/
+frontend/.cache/
+
+# Model outputs
+backend/outputs/
+
+# OS Files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Research papers PDFs (copyright)
+research_papers/**/*.pdf
+*.pdf
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+
+# Notebooks output cells (optional - comment out if you want to keep)
+# notebooks/
+
+# Agent cache
+.agent/
