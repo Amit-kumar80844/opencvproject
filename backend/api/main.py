@@ -142,7 +142,7 @@ def get_model(model_name: Optional[str] = None) -> nn.Module:
     Models are cached in memory. The first request for a model loads it;
     subsequent requests return the cached instance.
     """
-    global _model_cache, _current_model_name
+    global _current_model_name
     
     if model_name is None:
         model_name = DEFAULT_MODEL

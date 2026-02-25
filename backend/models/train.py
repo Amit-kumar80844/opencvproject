@@ -520,6 +520,7 @@ def train(config: Optional[Dict] = None, trial=None) -> Dict:
 
         # ── Optuna pruning ────────────────────────────────────────────────────
         if trial is not None:
+            import optuna
             trial.report(val_metrics["dice"], epoch)
             if trial.should_prune():
                 raise optuna.exceptions.TrialPruned()
