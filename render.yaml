@@ -1,17 +1,16 @@
-# Render Blueprint - TeaVision AI Free Hosting
+# Render Blueprint - TeaVision AI Hosting
 # https://render.com/docs/blueprint-spec
 # Deploy: Connect your GitHub repo at https://dashboard.render.com/
 # 
-# ⚠️ IMPORTANT: Free tier has 512MB RAM limit
-# PyTorch models may NOT load on free tier due to memory constraints.
-# For full functionality, upgrade to at least Starter ($7/month).
+# NOTE: Render no longer offers free web services (as of 2024).
+# Backend requires at least "Starter" plan (~$7/month) for PyTorch.
+# Static sites remain free.
 
 services:
   # Backend API (FastAPI + PyTorch)
   - type: web
     name: teavision-api
     runtime: python
-    plan: free  # Free tier - 512MB RAM (may not fit PyTorch models)
     buildCommand: |
       pip install --upgrade pip
       pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
@@ -21,17 +20,15 @@ services:
       - key: PYTHON_VERSION
         value: "3.10.0"
       - key: OLLAMA_BASE_URL
-        value: "http://localhost:11434"  # Won't work on free tier
+        value: "http://localhost:11434"
       - key: FAST_MODE_ENABLED
         value: "True"
     healthCheckPath: /
     autoDeploy: true
 
-  # Frontend (React + Vite - Static Site)
-  - type: web
+  # Frontend (React + Vite - Static Site) - FREE
+  - type: static
     name: teavision-frontend
-    runtime: static
-    plan: free
     buildCommand: cd frontend && npm install && npm run build
     staticPublishPath: frontend/dist
     headers:
