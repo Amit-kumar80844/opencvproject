@@ -61,18 +61,20 @@ import seaborn as sns
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import segmentation_models_pytorch as smp
 from torch.optim.lr_scheduler import OneCycleLR, ReduceLROnPlateau
 from torch.utils.data import DataLoader
 
 # ── Local imports ─────────────────────────────────────────────────────────────
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from unet    import SEAUNet, NUM_CLASSES
+from unet    import SEAUNet, NUM_CLASSES, create_model
 from metrics import (
     CombinedDiceBCELoss,
     MetricsTracker,
     compute_all_metrics,
     visualise_metrics_curves,
     calculate_operational_risk,
+    TverskyLoss,
 )
 from dataset import build_dataloaders, DATASET_ROOT
 
@@ -109,7 +111,8 @@ DEFAULT_CONFIG: Dict = {
     "weight_decay":  1e-4,
 
     # Loss
-    "dice_weight":   0.5,    # α for Dice + (1−α) × BCE
+    "model_name":    "mobilenet_v3_dual",
+    "dice_weight":   0.5,  # retained for backwards-compatible CLI/tuning configs
 
     # Scheduler: OneCycleLR [3] reaches peak LR at epoch 30% then anneals,
     # which empirically accelerates convergence vs. fixed LR or Step decay.
@@ -326,17 +329,12 @@ def train_one_epoch(
 
     for batch in loader:
         images  = batch["image"].to(device)                  # (B, 3, H, W)
-        masks   = batch["mask"].to(device)                   # (B, 1, H, W)
+        masks   = batch["mask"].to(device)                   # (B, 2, H, W)
 
         optimizer.zero_grad(set_to_none=True)
         preds = model(images)                                 # (B, C, H, W)
 
-        # For binary mode we use channel 0 of the output as the disease logit
-        # I'll extend to full multi-class in the production training script;
-        # the architecture supports both via the num_classes parameter.
-        pred_binary = preds[:, 0:1, :, :]                    # (B, 1, H, W)
-
-        total_loss, dice_l, bce_l = criterion(pred_binary, masks)
+        total_loss = criterion(preds, masks)
         total_loss.backward()
 
         # Gradient clipping: prevents exploding gradients in early training
@@ -350,8 +348,8 @@ def train_one_epoch(
 
         tracker.update(
             loss=float(total_loss.item()),
-            pred=pred_binary.detach(),
-            target=masks.detach(),
+            pred=preds[:, 1:2].detach(),
+            target=masks[:, 1:2].detach(),
         )
 
     return tracker.epoch_summary()
@@ -388,13 +386,12 @@ def validate_one_epoch(
         masks  = batch["mask"].to(device)
 
         preds        = model(images)
-        pred_binary  = preds[:, 0:1, :, :]
-        total_loss, _, _ = criterion(pred_binary, masks)
+        total_loss = criterion(preds, masks)
 
         tracker.update(
             loss=float(total_loss.item()),
-            pred=pred_binary,
-            target=masks,
+            pred=preds[:, 1:2],
+            target=masks[:, 1:2],
         )
 
     return tracker.epoch_summary()
@@ -427,14 +424,12 @@ def train(config: Optional[Dict] = None, trial=None) -> Dict:
     )
 
     # ── Model ─────────────────────────────────────────────────────────────────
-    model = SEAUNet(
-        in_channels=3,
-        num_classes=NUM_CLASSES,
-        base_filters=cfg["base_filters"],
-    ).to(DEVICE)
+    model = create_model(cfg["model_name"], num_classes=2).to(DEVICE)
 
     # ── Loss ──────────────────────────────────────────────────────────────────
-    criterion = CombinedDiceBCELoss(dice_weight=cfg["dice_weight"])
+    criterion = smp.losses.TverskyLoss(
+        mode="multilabel", alpha=0.3, beta=0.7
+    )
 
     # ── Optimiser: AdamW [2] ──────────────────────────────────────────────────
     # I chose AdamW over Adam because it correctly implements weight decay as

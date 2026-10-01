@@ -67,6 +67,55 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
+class TverskyLoss(nn.Module):
+    """Tversky loss for multilabel segmentation logits.
+
+    ``alpha`` weights false positives and ``beta`` weights false negatives.
+    The latter is intentionally larger for small disease lesions.
+    """
+
+    def __init__(self, alpha: float = 0.3, beta: float = 0.7,
+                 smooth: float = 1.0) -> None:
+        super().__init__()
+        if alpha < 0 or beta < 0:
+            raise ValueError("alpha and beta must be non-negative")
+        self.alpha = alpha
+        self.beta = beta
+        self.smooth = smooth
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        if pred.ndim != 4 or pred.shape[1] < 1:
+            raise ValueError("pred must have shape (B, C, H, W)")
+        target = target.float()
+        if target.shape != pred.shape:
+            raise ValueError(f"target shape {target.shape} must match pred {pred.shape}")
+        probs = torch.sigmoid(pred)
+        dims = (0, 2, 3)
+        true_pos = (probs * target).sum(dims)
+        false_pos = (probs * (1.0 - target)).sum(dims)
+        false_neg = ((1.0 - probs) * target).sum(dims)
+        score = (true_pos + self.smooth) / (
+            true_pos + self.alpha * false_pos + self.beta * false_neg + self.smooth
+        )
+        return 1.0 - score.mean()
+
+
+def calculate_severity(
+    leaf_mask: torch.Tensor | np.ndarray,
+    disease_mask: torch.Tensor | np.ndarray,
+    threshold: float = 0.5,
+) -> float:
+    """Return diseased area as a percentage of predicted leaf area."""
+    if isinstance(leaf_mask, torch.Tensor):
+        leaf_mask = leaf_mask.detach().cpu().numpy()
+    if isinstance(disease_mask, torch.Tensor):
+        disease_mask = disease_mask.detach().cpu().numpy()
+    leaf = np.asarray(leaf_mask) >= threshold
+    disease = (np.asarray(disease_mask) >= threshold) & leaf
+    leaf_area = int(leaf.sum())
+    return 0.0 if leaf_area == 0 else float(disease.sum() / leaf_area * 100.0)
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Loss Functions
 # ──────────────────────────────────────────────────────────────────────────────

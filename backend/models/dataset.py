@@ -55,6 +55,7 @@ from albumentations.pytorch import ToTensorV2
 # Root of the project — two levels up from this file (backend/models/ → root)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATASET_ROOT = PROJECT_ROOT / "datasets" / "tea_sickness" / "tea sickness dataset"
+PAIRED_DATASET_ROOT = PROJECT_ROOT / "data"
 
 # Canonical class ordering — MUST MATCH the order used during classifier training!
 # The EfficientNet-B4 classifier was trained with this order (from ImageFolder sorting)
@@ -308,6 +309,77 @@ def build_val_transforms(img_size: int = 256) -> A.Compose:
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Dataset Class
+
+class PairedLeafSegmentationDataset(Dataset):
+    """Loader for Kaggle's paired ``images/`` and ``masks/`` directories.
+
+    Kaggle masks supervise disease pixels.  The leaf channel is generated with
+    GrabCut so the model has the two targets required by the dual-head output.
+    Image and mask filenames are matched by stem, independent of extension.
+    """
+
+    def __init__(self, root_dir: Path = PAIRED_DATASET_ROOT,
+                 transform: Optional[A.Compose] = None,
+                 img_size: int = 256) -> None:
+        self.root_dir = Path(root_dir)
+        self.image_dir = self.root_dir / "images"
+        self.mask_dir = self.root_dir / "masks"
+        self.transform = transform
+        self.img_size = img_size
+        if not self.image_dir.is_dir() or not self.mask_dir.is_dir():
+            raise FileNotFoundError(
+                f"Expected paired dataset directories: {self.image_dir} and {self.mask_dir}"
+            )
+        mask_by_stem = {}
+        for p in self.mask_dir.iterdir():
+            if p.is_file() and p.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}:
+                mask_by_stem.setdefault(p.stem.lower(), p)
+        self.samples = []
+        for p in sorted(self.image_dir.iterdir()):
+            if p.is_file() and p.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}:
+                mask = mask_by_stem.get(p.stem.lower())
+                if mask is None:
+                    warnings.warn(f"Skipping image without paired mask: {p.name}")
+                else:
+                    self.samples.append((p, mask))
+        if not self.samples:
+            raise FileNotFoundError(f"No paired images/masks found under {self.root_dir}")
+
+    def __len__(self) -> int:
+        return len(self.samples)
+
+    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+        image_path, mask_path = self.samples[idx]
+        image_bgr = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
+        disease = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
+        if image_bgr is None or disease is None:
+            raise IOError(f"Could not read paired sample: {image_path}, {mask_path}")
+        image_bgr = cv2.resize(image_bgr, (self.img_size, self.img_size), interpolation=cv2.INTER_AREA)
+        disease = cv2.resize(disease, (self.img_size, self.img_size), interpolation=cv2.INTER_NEAREST)
+        leaf = generate_grabcut_mask(image_bgr)
+        image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+        disease = (disease > 127).astype(np.uint8)
+        if self.transform:
+            augmented = self.transform(image=image_rgb, masks=[leaf, disease])
+            image_tensor = augmented["image"].float()
+            masks = augmented["masks"]
+            mask_tensor = torch.from_numpy(np.stack(masks, axis=0)).float()
+        else:
+            image_tensor = torch.from_numpy(image_rgb.transpose(2, 0, 1)).float() / 255.0
+            mask_tensor = torch.from_numpy(np.stack([leaf, disease], axis=0)).float()
+        return {"image": image_tensor, "mask": mask_tensor,
+                "class_idx": 0, "class_name": "paired"}
+
+
+class _PairedSubsetDataset(PairedLeafSegmentationDataset):
+    def __init__(self, parent: PairedLeafSegmentationDataset,
+                 indices: List[int], transform: A.Compose) -> None:
+        self.root_dir = parent.root_dir
+        self.image_dir = parent.image_dir
+        self.mask_dir = parent.mask_dir
+        self.img_size = parent.img_size
+        self.samples = [parent.samples[i] for i in indices]
+        self.transform = transform
 # ──────────────────────────────────────────────────────────────────────────────
 
 class TeaLeafSegmentationDataset(Dataset):
@@ -587,6 +659,36 @@ def build_dataloaders(
         (train_loader, val_loader, test_loader)
     """
     from sklearn.model_selection import train_test_split
+
+    # Preferred path for the Kaggle Leaf Disease Segmentation Dataset.
+    # It contains real paired masks, so no pseudo-mask generation or class
+    # stratification is used for this mode.
+    paired_root = Path(root_dir)
+    if paired_root == DATASET_ROOT and (PAIRED_DATASET_ROOT / "images").is_dir():
+        paired_root = PAIRED_DATASET_ROOT
+    if (paired_root / "images").is_dir() and (paired_root / "masks").is_dir():
+        full_ds = PairedLeafSegmentationDataset(paired_root, None, img_size)
+        rng = np.random.default_rng(seed)
+        indices = rng.permutation(len(full_ds)).tolist()
+        n_test = max(1, int(len(indices) * test_split))
+        n_val = max(1, int(len(indices) * val_split))
+        test_idx = indices[:n_test]
+        val_idx = indices[n_test:n_test + n_val]
+        train_idx = indices[n_test + n_val:]
+        if not train_idx:
+            raise ValueError("Paired dataset is too small for the requested splits")
+        train_ds = _PairedSubsetDataset(full_ds, train_idx, build_train_transforms(img_size))
+        val_ds = _PairedSubsetDataset(full_ds, val_idx, build_val_transforms(img_size))
+        test_ds = _PairedSubsetDataset(full_ds, test_idx, build_val_transforms(img_size))
+        train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
+                                  num_workers=num_workers, pin_memory=torch.cuda.is_available(),
+                                  drop_last=len(train_ds) >= batch_size)
+        val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False,
+                                num_workers=num_workers, pin_memory=torch.cuda.is_available())
+        test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False,
+                                 num_workers=num_workers, pin_memory=torch.cuda.is_available())
+        print(f"Paired DataLoaders built — Train: {len(train_ds)} | Val: {len(val_ds)} | Test: {len(test_ds)}")
+        return train_loader, val_loader, test_loader
 
     # Build full dataset (no transforms yet) for index splitting
     full_ds = TeaLeafSegmentationDataset(

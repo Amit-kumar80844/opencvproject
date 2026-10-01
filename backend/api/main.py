@@ -72,7 +72,8 @@ from backend.models.unet    import (
     create_classifier, get_classifier_config, CLASSIFIER_CONFIG
 )
 from backend.models.dataset import CLASS_NAMES, build_val_transforms, IMAGENET_MEAN, IMAGENET_STD
-from backend.models.metrics import calculate_operational_risk
+from backend.models.metrics import calculate_operational_risk, calculate_severity
+from backend.models.plant import build_mobilenet_classifier
 
 # ── agentic layer imports ─────────────────────────────────────────────────────
 from backend.api.agent_graph import run_agent_pipeline, run_agent_pipeline_fast, FAST_MODE_ENABLED
@@ -119,6 +120,9 @@ import torch.nn.functional as F
 
 _model_cache: Dict[str, nn.Module] = {}
 _classifier_cache: Optional[nn.Module] = None
+_plant_classifier_cache: Optional[nn.Module] = None
+_plant_labels: Dict[int, str] = {}
+_plant_disease_cache: Dict[str, nn.Module] = {}
 _current_model_name: str = DEFAULT_MODEL
 
 
@@ -224,6 +228,34 @@ def get_classifier() -> nn.Module:
     
     if _classifier_cache is not None:
         return _classifier_cache
+
+
+def get_plant_classifier() -> Optional[nn.Module]:
+    """Load the PlantSeg plant gate when it has been trained."""
+    global _plant_classifier_cache, _plant_labels
+    if _plant_classifier_cache is not None:
+        return _plant_classifier_cache
+    checkpoint_path = CHECKPOINTS_DIR / "plant_mobilenet_v3_small.pth"
+    if not checkpoint_path.exists():
+        return None
+    state = torch.load(str(checkpoint_path), map_location=DEVICE, weights_only=False)
+    labels = state.get("labels", {})
+    _plant_labels = {int(index): name for name, index in labels.items()}
+    model = build_mobilenet_classifier(len(_plant_labels), pretrained=False)
+    model.load_state_dict(state["model_state_dict"])
+    _plant_classifier_cache = model.to(DEVICE).eval()
+    return _plant_classifier_cache
+
+
+@torch.no_grad()
+def _classify_plant(tensor: torch.Tensor) -> tuple[str, float]:
+    model = get_plant_classifier()
+    if model is None:
+        return "unknown", 0.0
+    resized = F.interpolate(tensor, size=(224, 224), mode="bilinear", align_corners=False)
+    probabilities = torch.softmax(model(resized), dim=1)[0]
+    index = int(probabilities.argmax())
+    return _plant_labels.get(index, "unknown"), float(probabilities[index])
     
     print("[API] Loading disease classifier (EfficientNet-B4 512x512)...")
     
@@ -284,6 +316,33 @@ def _classify_disease(tensor: torch.Tensor) -> int:
     pred_class_idx = int(logits.argmax(dim=1).item())
     
     return pred_class_idx
+
+
+@torch.no_grad()
+def _classify_plant_specific_disease(tensor: torch.Tensor, plant_name: str) -> Optional[str]:
+    """Run the routed disease model for a plant when its checkpoint exists."""
+    if plant_name == "unknown":
+        return None
+    registry_path = CHECKPOINTS_DIR / "plant_model_registry.json"
+    if not registry_path.exists():
+        return None
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    entry = registry.get("diseases", {}).get(plant_name)
+    if not entry:
+        return None
+    checkpoint_path = Path(entry["checkpoint"])
+    if not checkpoint_path.is_absolute():
+        checkpoint_path = PROJECT_ROOT / checkpoint_path
+    if not checkpoint_path.exists():
+        return None
+    if plant_name not in _plant_disease_cache:
+        model = build_mobilenet_classifier(len(entry["labels"]), pretrained=False)
+        state = torch.load(str(checkpoint_path), map_location=DEVICE, weights_only=False)
+        model.load_state_dict(state["model_state_dict"])
+        _plant_disease_cache[plant_name] = model.to(DEVICE).eval()
+    resized = F.interpolate(tensor, size=(224, 224), mode="bilinear", align_corners=False)
+    index = int(_plant_disease_cache[plant_name](resized).argmax(1).item())
+    return next((name for name, value in entry["labels"].items() if value == index), None)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -348,7 +407,7 @@ def _preprocess_image(file_bytes: bytes) -> tuple[np.ndarray, torch.Tensor]:
 
 
 @torch.no_grad()
-def _run_inference(tensor: torch.Tensor, model_name: str = DEFAULT_MODEL) -> tuple[np.ndarray, int, float]:
+def _run_inference(tensor: torch.Tensor, model_name: str = DEFAULT_MODEL) -> tuple[np.ndarray, int, float, str, float, str]:
     """
     Run 2-stage inference: Segmentation → Classification.
 
@@ -379,7 +438,13 @@ def _run_inference(tensor: torch.Tensor, model_name: str = DEFAULT_MODEL) -> tup
     model_info = MODEL_REGISTRY.get(model_name, {})
     num_classes = model_info.get("num_classes", 1)
     
-    if num_classes == 1:
+    if num_classes == 2 and model_name == "mobilenet_v3_dual":
+        # Independent sigmoid heads: channel 0 = leaf, channel 1 = lesion.
+        probs = torch.sigmoid(logits)[0].cpu().numpy()
+        leaf_mask = probs[0] > 0.5
+        disease_mask = (probs[1] > 0.3) & leaf_mask
+        severity_pct = calculate_severity(leaf_mask, disease_mask)
+    elif num_classes == 1:
         # Binary segmentation: apply sigmoid and threshold
         # Using lower threshold (0.3) to capture more affected areas including early-stage disease
         probs = torch.sigmoid(logits).squeeze(0).squeeze(0).cpu().numpy()  # (H, W)
@@ -390,45 +455,48 @@ def _run_inference(tensor: torch.Tensor, model_name: str = DEFAULT_MODEL) -> tup
         healthy_idx = CLASS_NAMES.index("healthy")
         disease_mask = (pred_map != healthy_idx).astype(np.uint8)
     
-    # ─── Calculate severity as % of LEAF area (not entire image) ───
+    if num_classes == 2 and model_name == "mobilenet_v3_dual":
+        print(f"[SEVERITY] dual-head leaf={int(leaf_mask.sum())}, disease={int(disease_mask.sum())}, severity={severity_pct:.1f}%")
+    else:
+        # ─── Legacy-model severity fallback ───
     # Strategy: Use the CONVEX HULL of the disease mask to estimate total leaf area
     # Since disease spots are distributed across the leaf, the convex hull of all
     # diseased regions gives us a good approximation of the leaf boundary
     
-    diseased_pixels = int(disease_mask.sum())
-    total_pixels = disease_mask.shape[0] * disease_mask.shape[1]
+        diseased_pixels = int(disease_mask.sum())
+        total_pixels = disease_mask.shape[0] * disease_mask.shape[1]
     
     # Find contours of the disease mask
-    contours, _ = cv2.findContours(disease_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours, _ = cv2.findContours(disease_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
-    if len(contours) > 0:
+        if len(contours) > 0:
         # Combine all contour points to find the overall convex hull
-        all_points = np.vstack(contours)
-        hull = cv2.convexHull(all_points)
+            all_points = np.vstack(contours)
+            hull = cv2.convexHull(all_points)
         
         # Create a mask of the convex hull (this approximates the leaf area)
-        hull_mask = np.zeros_like(disease_mask)
-        cv2.fillPoly(hull_mask, [hull], 1)
+            hull_mask = np.zeros_like(disease_mask)
+            cv2.fillPoly(hull_mask, [hull], 1)
         
         # Leaf area = pixels inside the convex hull
-        leaf_pixels = int(hull_mask.sum())
+            leaf_pixels = int(hull_mask.sum())
         
         # Ensure leaf_pixels >= diseased_pixels (logical consistency)
-        if leaf_pixels < diseased_pixels:
-            leaf_pixels = diseased_pixels
-    else:
+            if leaf_pixels < diseased_pixels:
+                leaf_pixels = diseased_pixels
+        else:
         # No disease detected - fallback to total image
-        leaf_pixels = total_pixels
+            leaf_pixels = total_pixels
     
     # Severity = diseased pixels / estimated leaf area
-    if leaf_pixels > 100:
-        severity_pct = float(diseased_pixels / leaf_pixels * 100)
-        severity_pct = min(100.0, severity_pct)
-    else:
-        severity_pct = float(diseased_pixels / total_pixels * 100)
+        if leaf_pixels > 100:
+            severity_pct = float(diseased_pixels / leaf_pixels * 100)
+            severity_pct = min(100.0, severity_pct)
+        else:
+            severity_pct = float(diseased_pixels / total_pixels * 100)
     
     # Debug print
-    print(f"[SEVERITY] diseased={diseased_pixels}, leaf_hull={leaf_pixels}, total={total_pixels}, severity={severity_pct:.1f}%")
+        print(f"[SEVERITY] diseased={diseased_pixels}, leaf_hull={leaf_pixels}, total={total_pixels}, severity={severity_pct:.1f}%")
     
     # ═══════════════════════════════════════════════════════════════════════════
     # Stage 2: CLASSIFICATION — Identify disease type
@@ -438,42 +506,19 @@ def _run_inference(tensor: torch.Tensor, model_name: str = DEFAULT_MODEL) -> tup
     
     # ALWAYS run the classifier for better accuracy
     # (Previously used 5% threshold which missed subtle diseases like gray light)
-    pred_class_idx = _classify_disease(tensor)
-    
-    # Get classifier confidence for decision logic
-    classifier = get_classifier()
-    classifier_input_size = CLASSIFIER_CONFIG["input_size"]  # 512
-    tensor_cls = F.interpolate(tensor, size=(classifier_input_size, classifier_input_size), mode="bilinear", align_corners=False)
-    logits_cls = classifier(tensor_cls)
-    probs = torch.softmax(logits_cls, dim=1)[0]
-    confidence = float(probs[pred_class_idx].item())
-    
-    # Special handling: If severity is very low (<2%) AND classifier is confident
-    # about healthy (>0.7), then trust the healthy classification
-    if severity_pct < 2.0 and pred_class_idx == healthy_idx and confidence > 0.7:
-        pass  # Keep healthy classification
-    elif severity_pct < 5.0 and pred_class_idx == healthy_idx:
-        # Low severity but classifier says healthy - check second-best
-        # This catches subtle diseases like gray light
-        probs_copy = probs.clone()
-        probs_copy[healthy_idx] = 0.0
-        second_best_idx = int(probs_copy.argmax().item())
-        second_best_conf = float(probs_copy[second_best_idx].item())
-        
-        # If second-best (a disease) has reasonable confidence, use it
-        if second_best_conf > 0.15:
-            pred_class_idx = second_best_idx
-    
-    # Double-check: if classifier says healthy but mask shows significant disease,
-    # trust the segmentation (edge case handling)
-    if pred_class_idx == healthy_idx and severity_pct >= 20.0:
-        # Force a disease class based on classifier's second-best prediction
-        probs_copy = probs.clone()
-        probs_copy[healthy_idx] = 0.0
-        pred_class_idx = int(probs_copy.argmax().item())
+    plant_name, plant_confidence = _classify_plant(tensor)
+    routed_disease = _classify_plant_specific_disease(tensor, plant_name)
+    if routed_disease:
+        # The plant-specific model is authoritative once the plant gate and
+        # its checkpoint are available.
+        pred_class_idx = CLASS_NAMES.index("healthy")
+        disease_name = routed_disease
+    else:
+        disease_name = CLASS_NAMES[_classify_disease(tensor)]
+        pred_class_idx = CLASS_NAMES.index(disease_name)
 
     mask_uint8 = (disease_mask * 255).astype(np.uint8)
-    return mask_uint8, pred_class_idx, severity_pct
+    return mask_uint8, pred_class_idx, severity_pct, plant_name, plant_confidence, disease_name
 
 
 def _mask_to_overlay_b64(img_bgr: np.ndarray, mask_uint8: np.ndarray) -> str:
@@ -616,10 +661,10 @@ async def _analysis_stream(file_bytes: bytes, model_name: str = DEFAULT_MODEL) -
         })
         await asyncio.sleep(0)
 
-        mask_uint8, pred_class_idx, severity_pct = await asyncio.get_event_loop().run_in_executor(
+        mask_uint8, pred_class_idx, severity_pct, plant_name, plant_confidence, routed_disease = await asyncio.get_event_loop().run_in_executor(
             None, _run_inference, tensor, model_name
         )
-        disease_class   = CLASS_NAMES[pred_class_idx]
+        disease_class   = routed_disease
         overlay_b64     = await asyncio.get_event_loop().run_in_executor(
             None, _mask_to_overlay_b64, img_bgr, mask_uint8
         )
@@ -629,6 +674,8 @@ async def _analysis_stream(file_bytes: bytes, model_name: str = DEFAULT_MODEL) -
         yield _sse_event("segmentation", step, "Segmentation Complete", {
             "message": f"Detected: {disease_class} ({severity_pct:.1f}% pixels affected)",
             "disease_class": disease_class,
+            "plant": plant_name,
+            "plant_confidence": round(plant_confidence, 4),
             "classification_method": "EfficientNet-B4" if severity_pct >= 5.0 else "threshold",
             "severity_pct":  round(severity_pct, 2),
             "original_image_b64": original_b64,
@@ -752,6 +799,8 @@ async def _analysis_stream(file_bytes: bytes, model_name: str = DEFAULT_MODEL) -
         # ── Step 7: Final result event ────────────────────────────────────────
         yield _sse_event("result", 7, "Analysis Complete", {
             "disease_class":         disease_class,
+            "plant":                  plant_name,
+            "plant_confidence":       round(plant_confidence, 4),
             "classification_method": "EfficientNet-B4" if severity_pct >= 5.0 else "threshold",
             "severity_pct":          round(severity_pct, 2),
             "risk_tier":             risk_tier,  # Use severity-based tier

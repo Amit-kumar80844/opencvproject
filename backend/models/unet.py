@@ -630,6 +630,13 @@ def visualise_architecture_diagram(
 # NOTE: All Colab-trained models use binary segmentation (1 output class)
 # Binary = disease vs non-disease, not per-disease-class segmentation
 MODEL_REGISTRY = {
+    "mobilenet_v3_dual": {
+        "checkpoint": "mobilenet_v3_dual_best.pth",
+        "description": "MobileNetV3-Small U-Net + SCSE dual-head",
+        "params": "lightweight",
+        "num_classes": 2,
+        "head_names": ("leaf", "disease"),
+    },
     "sea_unet": {
         "checkpoint": "sea_unet_binary_best.pth",
         "description": "SEA-UNet (Baseline)",
@@ -656,7 +663,7 @@ MODEL_REGISTRY = {
     },
 }
 
-DEFAULT_MODEL = "efficientnet_scse"  # SOTA model as default
+DEFAULT_MODEL = "mobilenet_v3_dual"
 
 
 def create_model(model_name: str = DEFAULT_MODEL, num_classes: int = None) -> nn.Module:
@@ -665,7 +672,8 @@ def create_model(model_name: str = DEFAULT_MODEL, num_classes: int = None) -> nn
     
     Parameters
     ----------
-    model_name : One of 'sea_unet', 'resnet34_unet', 'efficientnet_scse'
+    model_name : One of 'mobilenet_v3_dual', 'sea_unet', 'resnet34_unet',
+                 'efficientnet_scse'
     num_classes : Number of output classes. If None, uses value from MODEL_REGISTRY
                   (default 1 for binary segmentation as trained in Colab)
     
@@ -692,7 +700,23 @@ def create_model(model_name: str = DEFAULT_MODEL, num_classes: int = None) -> nn
     if num_classes is None:
         num_classes = MODEL_REGISTRY[model_name].get("num_classes", 1)
     
-    if model_name == "sea_unet":
+    if model_name == "mobilenet_v3_dual":
+        try:
+            import segmentation_models_pytorch as smp
+        except ImportError:
+            raise ImportError(
+                "segmentation_models_pytorch required for MobileNetV3 U-Net. "
+                "Install with: pip install segmentation-models-pytorch"
+            )
+        return smp.Unet(
+            encoder_name="mobilenet_v3_small",
+            encoder_weights="imagenet",
+            in_channels=3,
+            classes=num_classes,
+            decoder_attention_type="scse",
+        )
+
+    elif model_name == "sea_unet":
         # Custom SEA-UNet architecture (baseline)
         # For binary, use 1 class; sigmoid applied at inference
         return SEAUNet(in_channels=3, num_classes=num_classes, base_filters=64)

@@ -104,3 +104,9 @@ research_papers/**/*.pdf
 
 # Agent cache
 .agent/
+
+.venv311/
+backend/checkpoints/*.pth
+
+.venv311/
+backend/checkpoints/*.pth
