@@ -1,0 +1,307 @@
+{
+  "plants": {
+    "apple": 0,
+    "banana": 1,
+    "basil": 2,
+    "bean": 3,
+    "bell_pepper": 4,
+    "blueberry": 5,
+    "broccoli": 6,
+    "cabbage": 7,
+    "carrot": 8,
+    "cauliflower": 9,
+    "celery": 10,
+    "cherry": 11,
+    "citrus": 12,
+    "coffee": 13,
+    "corn": 14,
+    "cucumber": 15,
+    "eggplant": 16,
+    "garlic": 17,
+    "ginger": 18,
+    "grape": 19,
+    "lettuce": 20,
+    "maple": 21,
+    "peach": 22,
+    "plum": 23,
+    "potato": 24,
+    "raspberry": 25,
+    "rice": 26,
+    "soybean": 27,
+    "squash": 28,
+    "strawberry": 29,
+    "tobacco": 30,
+    "tomato": 31,
+    "wheat": 32,
+    "zucchini": 33
+  },
+  "diseases": {
+    "apple": {
+      "labels": {
+        "apple_black_rot": 0,
+        "apple_mosaic_virus": 1,
+        "apple_rust": 2,
+        "apple_scab": 3
+      },
+      "checkpoint": "disease_apple_mobilenet_v3_small.pth"
+    },
+    "banana": {
+      "labels": {
+        "banana_anthracnose": 0,
+        "banana_black_leaf_streak": 1,
+        "banana_bunchy_top": 2,
+        "banana_cigar_end_rot": 3,
+        "banana_cordana_leaf_spot": 4,
+        "banana_panama_disease": 5
+      },
+      "checkpoint": "disease_banana_mobilenet_v3_small.pth"
+    },
+    "bean": {
+      "labels": {
+        "bean_halo_blight": 0,
+        "bean_mosaic_virus": 1,
+        "bean_rust": 2
+      },
+      "checkpoint": "disease_bean_mobilenet_v3_small.pth"
+    },
+    "bell_pepper": {
+      "labels": {
+        "bell_pepper_bacterial_spot": 0,
+        "bell_pepper_blossom_end_rot": 1,
+        "bell_pepper_frogeye_leaf_spot": 2,
+        "bell_pepper_powdery_mildew": 3
+      },
+      "checkpoint": "disease_bell_pepper_mobilenet_v3_small.pth"
+    },
+    "blueberry": {
+      "labels": {
+        "blueberry_anthracnose": 0,
+        "blueberry_botrytis_blight": 1,
+        "blueberry_mummy_berry": 2,
+        "blueberry_rust": 3,
+        "blueberry_scorch": 4
+      },
+      "checkpoint": "disease_blueberry_mobilenet_v3_small.pth"
+    },
+    "broccoli": {
+      "labels": {
+        "broccoli_alternaria_leaf_spot": 0,
+        "broccoli_downy_mildew": 1,
+        "broccoli_ring_spot": 2
+      },
+      "checkpoint": "disease_broccoli_mobilenet_v3_small.pth"
+    },
+    "cabbage": {
+      "labels": {
+        "cabbage_alternaria_leaf_spot": 0,
+        "cabbage_black_rot": 1,
+        "cabbage_downy_mildew": 2
+      },
+      "checkpoint": "disease_cabbage_mobilenet_v3_small.pth"
+    },
+    "carrot": {
+      "labels": {
+        "carrot_alternaria_leaf_blight": 0,
+        "carrot_cavity_spot": 1,
+        "carrot_cercospora_leaf_blight": 2
+      },
+      "checkpoint": "disease_carrot_mobilenet_v3_small.pth"
+    },
+    "cauliflower": {
+      "labels": {
+        "cauliflower_alternaria_leaf_spot": 0,
+        "cauliflower_bacterial_soft_rot": 1
+      },
+      "checkpoint": "disease_cauliflower_mobilenet_v3_small.pth"
+    },
+    "celery": {
+      "labels": {
+        "celery_anthracnose": 0,
+        "celery_early_blight": 1
+      },
+      "checkpoint": "disease_celery_mobilenet_v3_small.pth"
+    },
+    "cherry": {
+      "labels": {
+        "cherry_leaf_spot": 0,
+        "cherry_powdery_mildew": 1
+      },
+      "checkpoint": "disease_cherry_mobilenet_v3_small.pth"
+    },
+    "citrus": {
+      "labels": {
+        "citrus_canker": 0,
+        "citrus_greening_disease": 1
+      },
+      "checkpoint": "disease_citrus_mobilenet_v3_small.pth"
+    },
+    "coffee": {
+      "labels": {
+        "coffee_berry_blotch": 0,
+        "coffee_black_rot": 1,
+        "coffee_brown_eye_spot": 2,
+        "coffee_leaf_rust": 3
+      },
+      "checkpoint": "disease_coffee_mobilenet_v3_small.pth"
+    },
+    "corn": {
+      "labels": {
+        "corn_gray_leaf_spot": 0,
+        "corn_northern_leaf_blight": 1,
+        "corn_rust": 2,
+        "corn_smut": 3
+      },
+      "checkpoint": "disease_corn_mobilenet_v3_small.pth"
+    },
+    "cucumber": {
+      "labels": {
+        "cucumber_angular_leaf_spot": 0,
+        "cucumber_bacterial_wilt": 1,
+        "cucumber_powdery_mildew": 2
+      },
+      "checkpoint": "disease_cucumber_mobilenet_v3_small.pth"
+    },
+    "eggplant": {
+      "labels": {
+        "eggplant_cercospora_leaf_spot": 0,
+        "eggplant_phomopsis_fruit_rot": 1,
+        "eggplant_phytophthora_blight": 2
+      },
+      "checkpoint": "disease_eggplant_mobilenet_v3_small.pth"
+    },
+    "garlic": {
+      "labels": {
+        "garlic_leaf_blight": 0,
+        "garlic_rust": 1
+      },
+      "checkpoint": "disease_garlic_mobilenet_v3_small.pth"
+    },
+    "ginger": {
+      "labels": {
+        "ginger_leaf_spot": 0,
+        "ginger_sheath_blight": 1
+      },
+      "checkpoint": "disease_ginger_mobilenet_v3_small.pth"
+    },
+    "grape": {
+      "labels": {
+        "grape_black_rot": 0,
+        "grape_downy_mildew": 1,
+        "grape_leaf_spot": 2,
+        "grapevine_leafroll_disease": 3
+      },
+      "checkpoint": "disease_grape_mobilenet_v3_small.pth"
+    },
+    "lettuce": {
+      "labels": {
+        "lettuce_downy_mildew": 0,
+        "lettuce_mosaic_virus": 1
+      },
+      "checkpoint": "disease_lettuce_mobilenet_v3_small.pth"
+    },
+    "peach": {
+      "labels": {
+        "peach_anthracnose": 0,
+        "peach_brown_rot": 1,
+        "peach_leaf_curl": 2,
+        "peach_rust": 3,
+        "peach_scab": 4
+      },
+      "checkpoint": "disease_peach_mobilenet_v3_small.pth"
+    },
+    "plum": {
+      "labels": {
+        "plum_bacterial_spot": 0,
+        "plum_brown_rot": 1,
+        "plum_pocket_disease": 2,
+        "plum_pox_virus": 3,
+        "plum_rust": 4
+      },
+      "checkpoint": "disease_plum_mobilenet_v3_small.pth"
+    },
+    "potato": {
+      "labels": {
+        "potato_early_blight": 0,
+        "potato_late_blight": 1
+      },
+      "checkpoint": "disease_potato_mobilenet_v3_small.pth"
+    },
+    "raspberry": {
+      "labels": {
+        "raspberry_fire_blight": 0,
+        "raspberry_gray_mold": 1,
+        "raspberry_leaf_spot": 2,
+        "raspberry_yellow_rust": 3
+      },
+      "checkpoint": "disease_raspberry_mobilenet_v3_small.pth"
+    },
+    "rice": {
+      "labels": {
+        "rice_blast": 0,
+        "rice_sheath_blight": 1
+      },
+      "checkpoint": "disease_rice_mobilenet_v3_small.pth"
+    },
+    "soybean": {
+      "labels": {
+        "soybean_bacterial_blight": 0,
+        "soybean_brown_spot": 1,
+        "soybean_downy_mildew": 2,
+        "soybean_frog_eye_leaf_spot": 3,
+        "soybean_mosaic": 4,
+        "soybean_rust": 5
+      },
+      "checkpoint": "disease_soybean_mobilenet_v3_small.pth"
+    },
+    "strawberry": {
+      "labels": {
+        "strawberry_anthracnose": 0,
+        "strawberry_leaf_scorch": 1
+      },
+      "checkpoint": "disease_strawberry_mobilenet_v3_small.pth"
+    },
+    "tobacco": {
+      "labels": {
+        "tobacco_blue_mold": 0,
+        "tobacco_brown_spot": 1,
+        "tobacco_frogeye_leaf_spot": 2,
+        "tobacco_mosaic_virus": 3
+      },
+      "checkpoint": "disease_tobacco_mobilenet_v3_small.pth"
+    },
+    "tomato": {
+      "labels": {
+        "tomato_bacterial_leaf_spot": 0,
+        "tomato_early_blight": 1,
+        "tomato_late_blight": 2,
+        "tomato_leaf_mold": 3,
+        "tomato_mosaic_virus": 4,
+        "tomato_septoria_leaf_spot": 5,
+        "tomato_yellow_leaf_curl_virus": 6
+      },
+      "checkpoint": "disease_tomato_mobilenet_v3_small.pth"
+    },
+    "wheat": {
+      "labels": {
+        "wheat_bacterial_leaf_streak_(black_chaff)": 0,
+        "wheat_head_scab": 1,
+        "wheat_leaf_rust": 2,
+        "wheat_loose_smut": 3,
+        "wheat_powdery_mildew": 4,
+        "wheat_septoria_blotch": 5,
+        "wheat_stem_rust": 6,
+        "wheat_stripe_rust": 7
+      },
+      "checkpoint": "disease_wheat_mobilenet_v3_small.pth"
+    },
+    "zucchini": {
+      "labels": {
+        "zucchini_bacterial_wilt": 0,
+        "zucchini_downy_mildew": 1,
+        "zucchini_powdery_mildew": 2,
+        "zucchini_yellow_mosaic_virus": 3
+      },
+      "checkpoint": "disease_zucchini_mobilenet_v3_small.pth"
+    }
+  }
+}
