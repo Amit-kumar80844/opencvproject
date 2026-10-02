@@ -23,6 +23,8 @@ class PlantSegMaskDataset(Dataset):
 
     def __init__(self, root: Path, split: str, size: int = 256, train: bool = False):
         self.root, self.split, self.size = Path(root), split, size
+        self.leaf_cache_dir = self.root / ".leaf_masks_cache" / split
+        self.leaf_cache_dir.mkdir(parents=True, exist_ok=True)
         image_dir = self.root / "images" / split
         mask_dir = self.root / "annotations" / split
         self.samples = []
@@ -50,7 +52,12 @@ class PlantSegMaskDataset(Dataset):
             raise IOError(f"Could not read {image_path} or {mask_path}")
         bgr = cv2.resize(bgr, (self.size, self.size), interpolation=cv2.INTER_AREA)
         disease = cv2.resize(disease, (self.size, self.size), interpolation=cv2.INTER_NEAREST)
-        leaf = generate_grabcut_mask(bgr)
+        leaf_cache = self.leaf_cache_dir / f"{image_path.stem}.png"
+        if leaf_cache.exists():
+            leaf = (cv2.imread(str(leaf_cache), cv2.IMREAD_GRAYSCALE) > 127).astype(np.uint8)
+        else:
+            leaf = generate_grabcut_mask(bgr)
+            cv2.imwrite(str(leaf_cache), leaf * 255)
         augmented = self.transform(
             image=cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB),
             masks=[leaf, (disease > 0).astype(np.uint8)],
@@ -95,12 +102,21 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=16)
+    parser.add_argument("--max-train-samples", type=int, default=0,
+                        help="Limit samples for a smoke test; 0 means all")
+    parser.add_argument("--max-val-samples", type=int, default=0,
+                        help="Limit validation samples for a smoke test; 0 means all")
     args = parser.parse_args()
     args.output.parent.mkdir(parents=True, exist_ok=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     train_ds = PlantSegMaskDataset(args.root, "train", train=True)
     val_ds = PlantSegMaskDataset(args.root, "val")
     test_ds = PlantSegMaskDataset(args.root, "test")
+    if args.max_train_samples:
+        train_ds.samples = train_ds.samples[:args.max_train_samples]
+    if args.max_val_samples:
+        val_ds.samples = val_ds.samples[:args.max_val_samples]
+    print(f"Using device: {device} | train={len(train_ds)} | val={len(val_ds)} | test={len(test_ds)}", flush=True)
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=2)
     val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=2)
     test_loader = DataLoader(test_ds, batch_size=args.batch_size, shuffle=False, num_workers=2)
@@ -113,12 +129,15 @@ def main():
     best = float("inf")
     for epoch in range(args.epochs):
         model.train()
-        for batch in train_loader:
+        for batch_index, batch in enumerate(train_loader, start=1):
             images, target = batch["image"].to(device), batch["mask"].to(device)
             optimizer.zero_grad(set_to_none=True)
             loss = criterion(model(images), target)
             loss.backward()
             optimizer.step()
+            if batch_index == 1 or batch_index % 50 == 0:
+                print(f"epoch {epoch + 1}/{args.epochs} batch {batch_index}/{len(train_loader)} "
+                      f"loss={loss.item():.4f}", flush=True)
         metrics = evaluate(model, val_loader, device)
         print(f"epoch {epoch + 1}/{args.epochs}: loss={loss.item():.4f} "
               f"val_dice={metrics['disease_dice']:.4f} "
