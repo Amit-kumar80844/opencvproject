@@ -709,7 +709,8 @@ def create_model(model_name: str = DEFAULT_MODEL, num_classes: int = None) -> nn
                 "Install with: pip install segmentation-models-pytorch"
             )
         return smp.Unet(
-            encoder_name="mobilenet_v3_small",
+            # SMP 0.5 exposes this TIMM encoder with the prefixed name.
+            encoder_name="timm-mobilenetv3_small_100",
             encoder_weights="imagenet",
             in_channels=3,
             classes=num_classes,

@@ -105,7 +105,7 @@ def main():
     val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=2)
     test_loader = DataLoader(test_ds, batch_size=args.batch_size, shuffle=False, num_workers=2)
     model = smp.Unet(
-        encoder_name="mobilenet_v3_small", encoder_weights="imagenet",
+        encoder_name="timm-mobilenetv3_small_100", encoder_weights="imagenet",
         in_channels=3, classes=2, decoder_attention_type="scse",
     ).to(device)
     criterion = smp.losses.TverskyLoss(mode="multilabel", alpha=0.3, beta=0.7)
